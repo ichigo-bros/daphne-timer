@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ダフネ再入手タイマー</title>
+<meta name="theme-color" content="#14111c">
+<!-- iPhoneでホーム画面に追加するとアプリのように全画面表示される -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ダフネタイマー">
+<!-- ホーム画面アイコン（剣のエンブレム / データURIなので追加ファイル不要） -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%231f1a2e'/%3E%3Ccircle cx='90' cy='90' r='62' fill='none' stroke='%23d4af37' stroke-width='4'/%3E%3Ctext x='90' y='118' font-size='72' text-anchor='middle' fill='%23d4af37'%3E%E2%9A%94%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #14111c;
+    --panel: #1f1a2e;
+    --panel2: #2a2340;
+    --border: #4a3f6b;
+    --gold: #d4af37;
+    --gold-dim: #a8893a;
+    --text: #e8e2d0;
+    --muted: #9b93b0;
+    --ready: #4caf7d;
+    --danger: #c0564f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: var(--bg);
+    background-image: radial-gradient(ellipse at top, #1e1830 0%, #14111c 70%);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px;
+    /* iPhoneのノッチ・ホームバーを避ける（ホーム画面追加時の全画面表示用） */
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    -webkit-text-size-adjust: 100%;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+
+  header {
+    text-align: center;
+    padding: 20px 0 12px;
+    border-bottom: 2px solid var(--gold-dim);
+    margin-bottom: 20px;
+  }
+  header h1 {
+    font-size: 1.4rem;
+    color: var(--gold);
+    letter-spacing: 2px;
+    text-shadow: 0 0 12px rgba(212,175,55,.35);
+  }
+  header p { color: var(--muted); font-size: .8rem; margin-top: 6px; }
+
+  /* 追加フォーム */
+  .add-form {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .add-form h2 { font-size: .95rem; color: var(--gold); margin-bottom: 12px; }
+  .form-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+  .form-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+  .form-field label { font-size: .75rem; color: var(--muted); }
+  input, select {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 9px 10px;
+    font-size: .95rem;
+    width: 100%;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--gold-dim); }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    font-size: .9rem;
+    padding: 10px 18px;
+    transition: filter .15s, transform .05s;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:active { transform: translateY(1px); }
+  .btn-primary {
+    background: linear-gradient(180deg, #d4af37, #a8893a);
+    color: #1a1408;
+    font-weight: bold;
+    width: 100%;
+  }
+  .btn-small {
+    padding: 7px 12px;
+    font-size: .8rem;
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-reset { border-color: var(--ready); color: var(--ready); }
+  .btn-delete { border-color: var(--danger); color: var(--danger); }
+
+  /* ソート切替 */
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .toolbar .count { color: var(--muted); font-size: .8rem; }
+  .toolbar select { width: auto; padding: 6px 10px; font-size: .8rem; }
+
+  /* アイテムカード */
+  .item {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .item.ready {
+    border-color: var(--ready);
+    box-shadow: 0 0 14px rgba(76,175,125,.25);
+  }
+  .item-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .item-name { font-size: 1.05rem; font-weight: bold; color: var(--gold); }
+  .item.ready .item-name { color: var(--ready); }
+  .item-memo { font-size: .8rem; color: var(--muted); margin-top: 2px; white-space: pre-wrap; }
+
+  .countdown { text-align: right; }
+  .countdown .time {
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+  }
+  .countdown .label { font-size: .7rem; color: var(--muted); }
+  .item.ready .countdown .time {
+    color: var(--ready);
+    font-weight: bold;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+  .progress {
+    height: 5px;
+    background: var(--panel2);
+    border-radius: 3px;
+    margin: 10px 0 8px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+    border-radius: 3px;
+    transition: width 1s linear;
+  }
+  .item.ready .progress-bar { background: var(--ready); }
+
+  .item-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .item-dates { font-size: .72rem; color: var(--muted); line-height: 1.5; }
+  .item-actions { display: flex; gap: 6px; }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 40px 0;
+    font-size: .9rem;
+    line-height: 1.8;
+  }
+
+  /* 編集ダイアログ */
+  dialog {
+    background: var(--panel);
+    border: 1px solid var(--gold-dim);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 20px;
+    width: min(420px, 92vw);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.65); }
+  dialog h3 { color: var(--gold); font-size: 1rem; margin-bottom: 14px; }
+  .dialog-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .dialog-actions button { flex: 1; }
+  .btn-cancel { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+
+  footer { text-align: center; color: var(--muted); font-size: .7rem; padding: 24px 0 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>⚔ ウィザードリィダフネ 再入手タイマー ⚔</h1>
+    <p>アイテム入手から再入手可能になるまでをカウントダウン</p>
+  </header>
+
+  <div id="storage-warning" style="display:none; background:#3d2a1a; border:1px solid var(--danger); border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:.8rem; line-height:1.6; color:#e8b9a0">
+    ⚠ この画面では<strong>データの保存が一時的</strong>で、閉じると消える場合があります。<br>
+    普段使いは Finder からこのHTMLファイルをダブルクリックしてブラウザで開いてください。入力後は「⬇ バックアップ保存」もおすすめです。
+  </div>
+
+  <section class="add-form">
+    <h2>＋ アイテムを登録</h2>
+    <div class="form-row">
+      <div class="form-field" style="flex:2">
+        <label for="in-name">アイテム名</label>
+        <input id="in-name" type="text" placeholder="例：戦士の小手" maxlength="50">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label for="in-date">入手日時</label>
+        <input id="in-date" type="datetime-local">
+      </div>
+      <div class="form-field">
+        <label for="in-period">再入手までの期間</label>
+        <select id="in-period">
+          <option value="m1" selected>1ヶ月（翌月の同日）</option>
+          <option value="d30">30日</option>
+          <option value="d14">14日</option>
+          <option value="d7">7日</option>
+          <option value="custom">日数を指定…</option>
+        </select>
+      </div>
+      <div class="form-field" id="custom-days-field" style="display:none">
+        <label for="in-days">日数</label>
+        <input id="in-days" type="number" min="1" max="365" value="30">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label for="in-memo">メモ（任意）</label>
+        <input id="in-memo" type="text" placeholder="例：交換所 / 〇〇のドロップ" maxlength="100">
+      </div>
+    </div>
+    <button class="btn-primary" id="btn-add">登録する</button>
+  </section>
+
+  <div class="toolbar">
+    <span class="count" id="item-count"></span>
+    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+      <button class="btn-small" id="btn-export">⬇ バックアップ保存</button>
+      <button class="btn-small" id="btn-import">⬆ 復元</button>
+      <input type="file" id="import-file" accept=".json" style="display:none">
+      <select id="sort-mode">
+        <option value="remaining">残り時間が短い順</option>
+        <option value="name">名前順</option>
+        <option value="acquired">入手日が新しい順</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="item-list"></div>
+
+  <footer>データはこのブラウザ内（localStorage）に保存されます</footer>
+</div>
+
+<dialog id="edit-dialog">
+  <h3>アイテムを編集</h3>
+  <div class="form-field" style="margin-bottom:10px">
+    <label>アイテム名</label>
+    <input id="ed-name" type="text" maxlength="50">
+  </div>
+  <div class="form-field" style="margin-bottom:10px">
+    <label>入手日時</label>
+    <input id="ed-date" type="datetime-local">
+  </div>
+  <div class="form-field" style="margin-bottom:10px">
+    <label>再入手までの期間</label>
+    <select id="ed-period">
+      <option value="m1">1ヶ月（翌月の同日）</option>
+      <option value="d30">30日</option>
+      <option value="d14">14日</option>
+      <option value="d7">7日</option>
+      <option value="custom">日数を指定…</option>
+    </select>
+  </div>
+  <div class="form-field" id="ed-custom-days-field" style="display:none; margin-bottom:10px">
+    <label>日数</label>
+    <input id="ed-days" type="number" min="1" max="365" value="30">
+  </div>
+  <div class="form-field">
+    <label>メモ</label>
+    <input id="ed-memo" type="text" maxlength="100">
+  </div>
+  <div class="dialog-actions">
+    <button class="btn-cancel" id="ed-cancel">キャンセル</button>
+    <button class="btn-primary" id="ed-save" style="width:auto">保存</button>
+  </div>
+</dialog>
+
+<script>
+const STORAGE_KEY = 'wizdaphne-items-v1';
+let items = [];
+let editingId = null;
+
+function load() {
+  try { items = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  catch { items = []; }
+}
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+}
+
+// 期間設定から次回入手可能日時を計算
+function nextAvailable(item) {
+  const d = new Date(item.acquiredAt);
+  if (item.period === 'm1') {
+    const day = d.getDate();
+    const next = new Date(d);
+    next.setMonth(next.getMonth() + 1);
+    // 月末補正（例：1/31 → 2/28）で日付がずれた場合
+    if (next.getDate() !== day) next.setDate(0);
+    return next;
+  }
+  const days = item.period === 'custom' ? (item.customDays || 30) : parseInt(item.period.slice(1), 10);
+  return new Date(d.getTime() + days * 86400000);
+}
+
+function periodLabel(item) {
+  if (item.period === 'm1') return '1ヶ月';
+  if (item.period === 'custom') return `${item.customDays || 30}日`;
+  return `${item.period.slice(1)}日`;
+}
+
+function fmtDate(d) {
+  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function toLocalInputValue(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fmtRemaining(ms) {
+  if (ms <= 0) return null;
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  if (days > 0) return `${days}日 ${hours}時間 ${mins}分`;
+  if (hours > 0) return `${hours}時間 ${mins}分 ${secs}秒`;
+  return `${mins}分 ${secs}秒`;
+}
+
+function sortedItems() {
+  const mode = document.getElementById('sort-mode').value;
+  const now = Date.now();
+  const arr = [...items];
+  if (mode === 'name') {
+    arr.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  } else if (mode === 'acquired') {
+    arr.sort((a, b) => new Date(b.acquiredAt) - new Date(a.acquiredAt));
+  } else {
+    // 再入手可能なものを先頭、それ以外は残り時間が短い順
+    arr.sort((a, b) => (nextAvailable(a) - now) - (nextAvailable(b) - now));
+  }
+  return arr;
+}
+
+function render() {
+  const list = document.getElementById('item-list');
+  const now = Date.now();
+  const readyCount = items.filter(i => nextAvailable(i) <= now).length;
+  document.getElementById('item-count').textContent =
+    items.length === 0 ? '' : `全${items.length}件${readyCount ? `（再入手可能：${readyCount}件）` : ''}`;
+
+  if (items.length === 0) {
+    list.innerHTML = '<div class="empty">登録されたアイテムはありません。<br>上のフォームから入手したアイテムを登録してください。</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const item of sortedItems()) {
+    const acquired = new Date(item.acquiredAt);
+    const next = nextAvailable(item);
+    const remaining = next - now;
+    const ready = remaining <= 0;
+    const total = next - acquired;
+    const progress = ready ? 100 : Math.min(100, Math.max(0, ((now - acquired) / total) * 100));
+
+    const el = document.createElement('div');
+    el.className = 'item' + (ready ? ' ready' : '');
+    el.innerHTML = `
+      <div class="item-top">
+        <div>
+          <div class="item-name">${escapeHtml(item.name)}</div>
+          ${item.memo ? `<div class="item-memo">${escapeHtml(item.memo)}</div>` : ''}
+        </div>
+        <div class="countdown">
+          <div class="time">${ready ? '✦ 再入手可能！' : fmtRemaining(remaining)}</div>
+          ${ready ? '' : '<div class="label">再入手まで</div>'}
+        </div>
+      </div>
+      <div class="progress"><div class="progress-bar" style="width:${progress}%"></div></div>
+      <div class="item-bottom">
+        <div class="item-dates">
+          入手：${fmtDate(acquired)}（周期：${periodLabel(item)}）<br>
+          解禁：${fmtDate(next)}
+        </div>
+        <div class="item-actions">
+          <button class="btn-small btn-reset" data-act="reset" data-id="${item.id}">入手した（リセット）</button>
+          <button class="btn-small" data-act="edit" data-id="${item.id}">編集</button>
+          <button class="btn-small btn-delete" data-act="delete" data-id="${item.id}">削除</button>
+        </div>
+      </div>`;
+    list.appendChild(el);
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// --- イベント ---
+document.getElementById('in-period').addEventListener('change', e => {
+  document.getElementById('custom-days-field').style.display =
+    e.target.value === 'custom' ? '' : 'none';
+});
+document.getElementById('ed-period').addEventListener('change', e => {
+  document.getElementById('ed-custom-days-field').style.display =
+    e.target.value === 'custom' ? '' : 'none';
+});
+
+document.getElementById('btn-add').addEventListener('click', () => {
+  const name = document.getElementById('in-name').value.trim();
+  if (!name) { alert('アイテム名を入力してください'); return; }
+  const dateVal = document.getElementById('in-date').value;
+  const period = document.getElementById('in-period').value;
+  items.push({
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    name,
+    memo: document.getElementById('in-memo').value.trim(),
+    acquiredAt: (dateVal ? new Date(dateVal) : new Date()).toISOString(),
+    period,
+    customDays: parseInt(document.getElementById('in-days').value, 10) || 30
+  });
+  save();
+  document.getElementById('in-name').value = '';
+  document.getElementById('in-memo').value = '';
+  document.getElementById('in-date').value = toLocalInputValue(new Date());
+  render();
+});
+
+document.getElementById('in-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-add').click();
+});
+
+document.getElementById('item-list').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const item = items.find(i => i.id === btn.dataset.id);
+  if (!item) return;
+
+  if (btn.dataset.act === 'reset') {
+    item.acquiredAt = new Date().toISOString();
+    save();
+    render();
+  } else if (btn.dataset.act === 'delete') {
+    if (confirm(`「${item.name}」を削除しますか？`)) {
+      items = items.filter(i => i.id !== item.id);
+      save();
+      render();
+    }
+  } else if (btn.dataset.act === 'edit') {
+    editingId = item.id;
+    document.getElementById('ed-name').value = item.name;
+    document.getElementById('ed-memo').value = item.memo || '';
+    document.getElementById('ed-date').value = toLocalInputValue(new Date(item.acquiredAt));
+    document.getElementById('ed-period').value = item.period;
+    document.getElementById('ed-days').value = item.customDays || 30;
+    document.getElementById('ed-custom-days-field').style.display =
+      item.period === 'custom' ? '' : 'none';
+    document.getElementById('edit-dialog').showModal();
+  }
+});
+
+document.getElementById('ed-cancel').addEventListener('click', () => {
+  document.getElementById('edit-dialog').close();
+});
+document.getElementById('ed-save').addEventListener('click', () => {
+  const item = items.find(i => i.id === editingId);
+  if (!item) return;
+  const name = document.getElementById('ed-name').value.trim();
+  if (!name) { alert('アイテム名を入力してください'); return; }
+  item.name = name;
+  item.memo = document.getElementById('ed-memo').value.trim();
+  const dateVal = document.getElementById('ed-date').value;
+  if (dateVal) item.acquiredAt = new Date(dateVal).toISOString();
+  item.period = document.getElementById('ed-period').value;
+  item.customDays = parseInt(document.getElementById('ed-days').value, 10) || 30;
+  save();
+  document.getElementById('edit-dialog').close();
+  render();
+});
+
+document.getElementById('sort-mode').addEventListener('change', render);
+
+// --- バックアップ（エクスポート／インポート） ---
+document.getElementById('btn-export').addEventListener('click', () => {
+  if (items.length === 0) { alert('保存するデータがありません'); return; }
+  const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ダフネタイマー_バックアップ_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+
+document.getElementById('import-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data) || !data.every(i => i && i.name && i.acquiredAt)) {
+        throw new Error('形式が違います');
+      }
+      if (items.length > 0 &&
+          !confirm(`現在の${items.length}件をバックアップの${data.length}件で置き換えますか？`)) {
+        return;
+      }
+      items = data;
+      save();
+      render();
+      alert(`${data.length}件のデータを復元しました`);
+    } catch {
+      alert('読み込めませんでした。バックアップファイル（.json）を選んでください');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// --- 初期化 ---
+// データURL・サンドボックス環境（プレビューパネル等）では保存が永続化されないため警告を表示
+(() => {
+  let ephemeral = location.protocol === 'data:' || location.origin === 'null';
+  try { localStorage.setItem('__test', '1'); localStorage.removeItem('__test'); }
+  catch { ephemeral = true; }
+  if (ephemeral) document.getElementById('storage-warning').style.display = '';
+})();
+load();
+document.getElementById('in-date').value = toLocalInputValue(new Date());
+render();
+setInterval(render, 1000);
+</script>
+</body>
+</html>
