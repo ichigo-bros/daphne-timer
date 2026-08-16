@@ -101,6 +101,8 @@
   }
   .btn-reset { border-color: var(--ready); color: var(--ready); }
   .btn-delete { border-color: var(--danger); color: var(--danger); }
+  .btn-notify-on { border-color: var(--ready); color: var(--ready); }
+  .btn-notify-off { border-color: var(--danger); color: var(--danger); }
 
   /* ソート切替 */
   .toolbar {
@@ -256,6 +258,7 @@
   <div class="toolbar">
     <span class="count" id="item-count"></span>
     <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+      <button class="btn-small" id="btn-notify">🔔 通知を有効にする</button>
       <button class="btn-small" id="btn-export">⬇ バックアップ保存</button>
       <button class="btn-small" id="btn-import">⬆ 復元</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
@@ -267,9 +270,11 @@
     </div>
   </div>
 
+  <div id="notify-note" style="display:none; color:var(--muted); font-size:.72rem; margin:-4px 0 14px; line-height:1.6;"></div>
+
   <div id="item-list"></div>
 
-  <footer>データはこのブラウザ内（localStorage）に保存されます</footer>
+  <footer>データはこのブラウザ内（localStorage）に保存されます<br>通知はこのページ（タブ）を開いている間だけ届きます</footer>
 </div>
 
 <dialog id="edit-dialog">
@@ -314,6 +319,18 @@ let editingId = null;
 function load() {
   try { items = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
   catch { items = []; }
+  normalizeNotified();
+}
+
+// 既存データ（notifiedフィールドが無い古いバックアップ等）を補正。
+// 既に再入手可能なものは通知済み扱いにして、有効化した瞬間にどっと通知が飛ぶのを防ぐ
+function normalizeNotified() {
+  const now = Date.now();
+  for (const item of items) {
+    if (typeof item.notified !== 'boolean') {
+      item.notified = nextAvailable(item) <= now;
+    }
+  }
 }
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
@@ -375,7 +392,29 @@ function sortedItems() {
   return arr;
 }
 
+// 再入手可能になった瞬間を検知して通知を送る（未通知のものだけ）
+function checkAndNotify() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const now = Date.now();
+  let changed = false;
+  for (const item of items) {
+    if (!item.notified && nextAvailable(item) - now <= 0) {
+      item.notified = true;
+      changed = true;
+      try {
+        const n = new Notification('✦ 再入手可能になったよ！', {
+          body: item.name + (item.memo ? `（${item.memo}）` : ''),
+          tag: 'daphne-timer-' + item.id
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+      } catch (e) { /* 通知生成に失敗しても処理は続行 */ }
+    }
+  }
+  if (changed) save();
+}
+
 function render() {
+  checkAndNotify();
   const list = document.getElementById('item-list');
   const now = Date.now();
   const readyCount = items.filter(i => nextAvailable(i) <= now).length;
@@ -450,7 +489,8 @@ document.getElementById('btn-add').addEventListener('click', () => {
     memo: document.getElementById('in-memo').value.trim(),
     acquiredAt: (dateVal ? new Date(dateVal) : new Date()).toISOString(),
     period,
-    customDays: parseInt(document.getElementById('in-days').value, 10) || 30
+    customDays: parseInt(document.getElementById('in-days').value, 10) || 30,
+    notified: false
   });
   save();
   document.getElementById('in-name').value = '';
@@ -471,6 +511,7 @@ document.getElementById('item-list').addEventListener('click', e => {
 
   if (btn.dataset.act === 'reset') {
     item.acquiredAt = new Date().toISOString();
+    item.notified = false;
     save();
     render();
   } else if (btn.dataset.act === 'delete') {
@@ -506,6 +547,7 @@ document.getElementById('ed-save').addEventListener('click', () => {
   if (dateVal) item.acquiredAt = new Date(dateVal).toISOString();
   item.period = document.getElementById('ed-period').value;
   item.customDays = parseInt(document.getElementById('ed-days').value, 10) || 30;
+  item.notified = false;
   save();
   document.getElementById('edit-dialog').close();
   render();
@@ -545,6 +587,7 @@ document.getElementById('import-file').addEventListener('change', e => {
         return;
       }
       items = data;
+      normalizeNotified();
       save();
       render();
       alert(`${data.length}件のデータを復元しました`);
@@ -554,6 +597,60 @@ document.getElementById('import-file').addEventListener('change', e => {
   };
   reader.readAsText(file);
   e.target.value = '';
+});
+
+// --- 通知 ---
+function updateNotifyButton() {
+  const btn = document.getElementById('btn-notify');
+  const note = document.getElementById('notify-note');
+  if (!('Notification' in window)) {
+    btn.textContent = '🔕 通知非対応';
+    btn.className = 'btn-small btn-notify-off';
+    btn.disabled = true;
+    note.style.display = '';
+    note.textContent = '※ このブラウザは通知機能に対応していないみたい。';
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    btn.textContent = '🔔 通知ON';
+    btn.className = 'btn-small btn-notify-on';
+    note.style.display = '';
+    note.textContent = '※ 通知はこのタブを開いている間だけ届くよ（バックグラウンドタブでもOK）。ブラウザやページを完全に閉じてる間は届かないから注意！';
+  } else if (Notification.permission === 'denied') {
+    btn.textContent = '🔕 通知が拒否されてるよ';
+    btn.className = 'btn-small btn-notify-off';
+    note.style.display = '';
+    note.textContent = '※ ブラウザ側で通知がブロックされてるみたい。ブラウザの設定サイトから許可し直してね。';
+  } else {
+    btn.textContent = '🔔 通知を有効にする';
+    btn.className = 'btn-small';
+    note.style.display = 'none';
+  }
+}
+
+document.getElementById('btn-notify').addEventListener('click', () => {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    alert('通知はもうONになってるよ！再入手可能になったら知らせるから安心してね。');
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    alert('通知がブラウザ側でブロックされてるみたい。ブラウザの設定から許可し直してね。');
+    return;
+  }
+  Notification.requestPermission().then(perm => {
+    updateNotifyButton();
+    if (perm === 'granted') {
+      // 有効化した瞬間に既にreadyなアイテムがどっと通知されないよう既読扱いにする
+      const now = Date.now();
+      let changed = false;
+      for (const item of items) {
+        if (!item.notified && nextAvailable(item) - now <= 0) { item.notified = true; changed = true; }
+      }
+      if (changed) save();
+      try { new Notification('🔔 通知ONにしたよ', { body: 'アイテムが再入手可能になったらここでお知らせするね！' }); } catch (e) {}
+    }
+  });
 });
 
 // --- 初期化 ---
@@ -566,6 +663,7 @@ document.getElementById('import-file').addEventListener('change', e => {
 })();
 load();
 document.getElementById('in-date').value = toLocalInputValue(new Date());
+updateNotifyButton();
 render();
 setInterval(render, 1000);
 </script>
