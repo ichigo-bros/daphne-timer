@@ -1,0 +1,10 @@
+{
+  "name": "ダフネ再入手タイマー",
+  "short_name": "ダフネタイマー",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14111c",
+  "theme_color": "#14111c",
+  "lang": "ja"
+}

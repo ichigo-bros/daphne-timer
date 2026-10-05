@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ダフネタイマー">
+<link rel="manifest" href="manifest.json">
 <!-- ホーム画面アイコン（剣のエンブレム / データURIなので追加ファイル不要） -->
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%231f1a2e'/%3E%3Ccircle cx='90' cy='90' r='62' fill='none' stroke='%23d4af37' stroke-width='4'/%3E%3Ctext x='90' y='118' font-size='72' text-anchor='middle' fill='%23d4af37'%3E%E2%9A%94%3C/text%3E%3C/svg%3E">
 <style>
@@ -178,7 +179,7 @@
     flex-wrap: wrap;
   }
   .item-dates { font-size: .72rem; color: var(--muted); line-height: 1.5; }
-  .item-actions { display: flex; gap: 6px; }
+  .item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
   .empty {
     text-align: center;
@@ -195,6 +196,7 @@
     border-radius: 10px;
     color: var(--text);
     padding: 20px;
+    margin: auto; /* 冒頭の * { margin:0 } で中央寄せが消えるため戻す */
     width: min(420px, 92vw);
   }
   dialog::backdrop { background: rgba(0,0,0,.65); }
@@ -204,6 +206,16 @@
   .btn-cancel { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
 
   footer { text-align: center; color: var(--muted); font-size: .7rem; padding: 24px 0 8px; }
+
+  .btn-cal { border-color: var(--gold-dim); color: var(--gold); }
+  .cal-buttons { display: flex; flex-direction: column; gap: 10px; }
+  .cal-buttons button { width: 100%; }
+  .cal-note { font-size: .75rem; color: var(--muted); line-height: 1.6; margin-bottom: 14px; }
+  .ios-tip {
+    background: #2a2340; border: 1px solid var(--gold-dim); border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 16px; font-size: .78rem; line-height: 1.7;
+  }
+  .ios-tip strong { color: var(--gold); }
 </style>
 </head>
 <body>
@@ -215,7 +227,12 @@
 
   <div id="storage-warning" style="display:none; background:#3d2a1a; border:1px solid var(--danger); border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:.8rem; line-height:1.6; color:#e8b9a0">
     ⚠ この画面では<strong>データの保存が一時的</strong>で、閉じると消える場合があります。<br>
-    普段使いは Finder からこのHTMLファイルをダブルクリックしてブラウザで開いてください。入力後は「⬇ バックアップ保存」もおすすめです。
+    普段使いは https://ichigo-bros.github.io/daphne-timer/ をSafariで開いてください。入力後は「⬇ バックアップ保存」もおすすめです。
+  </div>
+
+  <div id="ios-tip" class="ios-tip" style="display:none">
+    📱 <strong>iPhoneでは、アプリを閉じている間・バックグラウンドの間はタイマーが止まり通知が出せません</strong>（iOSの仕様）。<br>
+    確実に知らせてほしいときは、各アイテムの「📅 カレンダー」でiPhoneのカレンダーに登録してください。解禁時刻ちょうどにカレンダーが通知してくれます。
   </div>
 
   <section class="add-form">
@@ -274,7 +291,7 @@
 
   <div id="item-list"></div>
 
-  <footer>データはこのブラウザ内（localStorage）に保存されます<br>通知はこのページ（タブ）を開いている間だけ届きます</footer>
+  <footer>データはこのブラウザ内（localStorage）に保存されます<br>アプリ内の通知は画面を開いている間だけ。閉じていても知らせてほしいときは「📅 カレンダー」を使ってください</footer>
 </div>
 
 <dialog id="edit-dialog">
@@ -309,6 +326,20 @@
     <button class="btn-cancel" id="ed-cancel">キャンセル</button>
     <button class="btn-primary" id="ed-save" style="width:auto">保存</button>
   </div>
+</dialog>
+
+<dialog id="cal-dialog">
+  <h3>📅 カレンダーに通知を登録</h3>
+  <p class="cal-note" id="cal-info"></p>
+  <div class="cal-buttons">
+    <button class="btn-primary" id="cal-ics">iPhoneのカレンダーに追加</button>
+    <button class="btn-small btn-cal" id="cal-google">Googleカレンダーに追加</button>
+    <button class="btn-cancel" id="cal-cancel">閉じる</button>
+  </div>
+  <p class="cal-note" style="margin:12px 0 0">
+    iPhoneのカレンダー：解禁時刻ちょうどに通知が鳴る設定で登録されます。<br>
+    Googleカレンダー：通知はGoogleカレンダー側の既定設定に従います。
+  </p>
 </dialog>
 
 <script>
@@ -392,6 +423,17 @@ function sortedItems() {
   return arr;
 }
 
+// iPhoneは「new Notification()」に非対応で、Service Worker経由でしか通知を出せない。
+// SWが使えればそちら、使えなければ従来の方法で出す
+let swReg = null;
+function showNotice(title, options) {
+  if (swReg) return swReg.showNotification(title, options).catch(() => {});
+  try {
+    const n = new Notification(title, options);
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch (e) { /* 通知生成に失敗しても処理は続行 */ }
+}
+
 // 再入手可能になった瞬間を検知して通知を送る（未通知のものだけ）
 function checkAndNotify() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -401,17 +443,29 @@ function checkAndNotify() {
     if (!item.notified && nextAvailable(item) - now <= 0) {
       item.notified = true;
       changed = true;
-      try {
-        const n = new Notification('✦ 再入手可能になったよ！', {
-          body: item.name + (item.memo ? `（${item.memo}）` : ''),
-          tag: 'daphne-timer-' + item.id
-        });
-        n.onclick = () => { window.focus(); n.close(); };
-      } catch (e) { /* 通知生成に失敗しても処理は続行 */ }
+      showNotice('✦ 再入手可能になったよ！', {
+        body: item.name + (item.memo ? `（${item.memo}）` : ''),
+        tag: 'daphne-timer-' + item.id
+      });
     }
   }
   if (changed) save();
 }
+
+function itemState(item, now) {
+  const acquired = new Date(item.acquiredAt);
+  const next = nextAvailable(item);
+  const remaining = next - now;
+  const ready = remaining <= 0;
+  const total = next - acquired;
+  const progress = ready ? 100 : Math.min(100, Math.max(0, ((now - acquired) / total) * 100));
+  return { acquired, next, remaining, ready, progress };
+}
+
+// 毎秒カード全体を作り直すと、iPhoneでボタンをタップした瞬間に
+// 要素が差し替わってタップが空振りすることがある。
+// 並び順・状態が変わらない間は残り時間と進捗バーだけ書き換える
+let lastLayoutKey = null;
 
 function render() {
   checkAndNotify();
@@ -422,21 +476,35 @@ function render() {
     items.length === 0 ? '' : `全${items.length}件${readyCount ? `（再入手可能：${readyCount}件）` : ''}`;
 
   if (items.length === 0) {
+    lastLayoutKey = null;
     list.innerHTML = '<div class="empty">登録されたアイテムはありません。<br>上のフォームから入手したアイテムを登録してください。</div>';
     return;
   }
 
+  const sorted = sortedItems();
+  const layoutKey = sorted.map(i =>
+    [i.id, i.name, i.memo, i.acquiredAt, i.period, i.customDays, nextAvailable(i) <= now].join('|')
+  ).join('\n');
+
+  if (layoutKey === lastLayoutKey) {
+    for (const item of sorted) {
+      const el = list.querySelector(`.item[data-id="${CSS.escape(item.id)}"]`);
+      if (!el) continue;
+      const s = itemState(item, now);
+      if (!s.ready) el.querySelector('.time').textContent = fmtRemaining(s.remaining);
+      el.querySelector('.progress-bar').style.width = s.progress + '%';
+    }
+    return;
+  }
+  lastLayoutKey = layoutKey;
+
   list.innerHTML = '';
-  for (const item of sortedItems()) {
-    const acquired = new Date(item.acquiredAt);
-    const next = nextAvailable(item);
-    const remaining = next - now;
-    const ready = remaining <= 0;
-    const total = next - acquired;
-    const progress = ready ? 100 : Math.min(100, Math.max(0, ((now - acquired) / total) * 100));
+  for (const item of sorted) {
+    const { acquired, next, remaining, ready, progress } = itemState(item, now);
 
     const el = document.createElement('div');
     el.className = 'item' + (ready ? ' ready' : '');
+    el.dataset.id = item.id;
     el.innerHTML = `
       <div class="item-top">
         <div>
@@ -455,6 +523,7 @@ function render() {
           解禁：${fmtDate(next)}
         </div>
         <div class="item-actions">
+          ${ready ? '' : `<button class="btn-small btn-cal" data-act="calendar" data-id="${item.id}">📅 カレンダー</button>`}
           <button class="btn-small btn-reset" data-act="reset" data-id="${item.id}">入手した（リセット）</button>
           <button class="btn-small" data-act="edit" data-id="${item.id}">編集</button>
           <button class="btn-small btn-delete" data-act="delete" data-id="${item.id}">削除</button>
@@ -514,6 +583,11 @@ document.getElementById('item-list').addEventListener('click', e => {
     item.notified = false;
     save();
     render();
+  } else if (btn.dataset.act === 'calendar') {
+    calItemId = item.id;
+    document.getElementById('cal-info').textContent =
+      `「${item.name}」の解禁 ${fmtDate(nextAvailable(item))} を予定として登録します。`;
+    document.getElementById('cal-dialog').showModal();
   } else if (btn.dataset.act === 'delete') {
     if (confirm(`「${item.name}」を削除しますか？`)) {
       items = items.filter(i => i.id !== item.id);
@@ -555,6 +629,83 @@ document.getElementById('ed-save').addEventListener('click', () => {
 
 document.getElementById('sort-mode').addEventListener('change', render);
 
+// --- カレンダー登録（iPhoneでアプリを閉じていても確実に通知させる手段） ---
+let calItemId = null;
+
+function icsDate(d) {
+  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); // 20261005T030000Z
+}
+function icsText(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+}
+function calEvent(item) {
+  const start = nextAvailable(item);
+  return {
+    start,
+    end: new Date(start.getTime() + 15 * 60000),
+    title: `【ダフネ】${item.name} 再入手可能`,
+    details: (item.memo ? item.memo + '\n' : '') + 'ダフネ再入手タイマー https://ichigo-bros.github.io/daphne-timer/'
+  };
+}
+function buildIcs(item) {
+  const ev = calEvent(item);
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//ichigo-bros//daphne-timer//JA',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${item.id}-${ev.start.getTime()}@daphne-timer`,
+    `DTSTAMP:${icsDate(new Date())}`,
+    `DTSTART:${icsDate(ev.start)}`,
+    `DTEND:${icsDate(ev.end)}`,
+    `SUMMARY:${icsText(ev.title)}`,
+    `DESCRIPTION:${icsText(ev.details)}`,
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${icsText(ev.title)}`,
+    'TRIGGER:PT0S',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+}
+
+document.getElementById('cal-ics').addEventListener('click', () => {
+  const item = items.find(i => i.id === calItemId);
+  if (!item) return;
+  // iPhoneのSafariは text/calendar を開くと「カレンダーに追加」画面を出す
+  const blob = new Blob([buildIcs(item)], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `daphne_${icsDate(nextAvailable(item))}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  document.getElementById('cal-dialog').close();
+});
+
+document.getElementById('cal-google').addEventListener('click', () => {
+  const item = items.find(i => i.id === calItemId);
+  if (!item) return;
+  const ev = calEvent(item);
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: ev.title,
+    dates: `${icsDate(ev.start)}/${icsDate(ev.end)}`,
+    details: ev.details
+  });
+  window.open('https://calendar.google.com/calendar/render?' + params, '_blank');
+  document.getElementById('cal-dialog').close();
+});
+
+document.getElementById('cal-cancel').addEventListener('click', () => {
+  document.getElementById('cal-dialog').close();
+});
+
 // --- バックアップ（エクスポート／インポート） ---
 document.getElementById('btn-export').addEventListener('click', () => {
   if (items.length === 0) { alert('保存するデータがありません'); return; }
@@ -565,7 +716,8 @@ document.getElementById('btn-export').addEventListener('click', () => {
   a.href = URL.createObjectURL(blob);
   a.download = `ダフネタイマー_バックアップ_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.json`;
   a.click();
-  URL.revokeObjectURL(a.href);
+  // Safariは即座に解放するとダウンロードに失敗することがあるので少し待つ
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
 });
 
 document.getElementById('btn-import').addEventListener('click', () => {
@@ -600,6 +752,11 @@ document.getElementById('import-file').addEventListener('change', e => {
 });
 
 // --- 通知 ---
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = navigator.standalone === true ||
+  window.matchMedia('(display-mode: standalone)').matches;
+
 function updateNotifyButton() {
   const btn = document.getElementById('btn-notify');
   const note = document.getElementById('notify-note');
@@ -608,14 +765,19 @@ function updateNotifyButton() {
     btn.className = 'btn-small btn-notify-off';
     btn.disabled = true;
     note.style.display = '';
-    note.textContent = '※ このブラウザは通知機能に対応していないみたい。';
+    // iPhoneのSafariでは、ホーム画面に追加したアプリとして開いたときだけ通知が使える
+    note.textContent = isIOS && !isStandalone
+      ? '※ iPhoneで通知を使うには、Safariの共有ボタン →「ホーム画面に追加」をして、ホーム画面のアイコンから開いてね。'
+      : '※ このブラウザは通知機能に対応していないみたい。';
     return;
   }
   if (Notification.permission === 'granted') {
     btn.textContent = '🔔 通知ON';
     btn.className = 'btn-small btn-notify-on';
     note.style.display = '';
-    note.textContent = '※ 通知はこのタブを開いている間だけ届くよ（バックグラウンドタブでもOK）。ブラウザやページを完全に閉じてる間は届かないから注意！';
+    note.textContent = isIOS
+      ? '※ iPhoneではこの画面を表示している間だけ通知できるよ。バックグラウンドや画面オフの間は届かないから、確実に知りたいものは「📅 カレンダー」で登録してね。'
+      : '※ 通知はこのタブを開いている間だけ届くよ（バックグラウンドタブでもOK）。ブラウザやページを完全に閉じてる間は届かないから注意！';
   } else if (Notification.permission === 'denied') {
     btn.textContent = '🔕 通知が拒否されてるよ';
     btn.className = 'btn-small btn-notify-off';
@@ -648,7 +810,7 @@ document.getElementById('btn-notify').addEventListener('click', () => {
         if (!item.notified && nextAvailable(item) - now <= 0) { item.notified = true; changed = true; }
       }
       if (changed) save();
-      try { new Notification('🔔 通知ONにしたよ', { body: 'アイテムが再入手可能になったらここでお知らせするね！' }); } catch (e) {}
+      showNotice('🔔 通知ONにしたよ', { body: 'アイテムが再入手可能になったらここでお知らせするね！' });
     }
   });
 });
@@ -663,9 +825,34 @@ document.getElementById('btn-notify').addEventListener('click', () => {
 })();
 load();
 document.getElementById('in-date').value = toLocalInputValue(new Date());
+if (isIOS) document.getElementById('ios-tip').style.display = '';
 updateNotifyButton();
 render();
 setInterval(render, 1000);
+
+// バックグラウンドから戻った瞬間にすぐ再計算・未通知分を通知
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') render();
+});
+window.addEventListener('pageshow', render);
+
+// 他のタブ／ホーム画面アプリで変更されたデータを取り込む
+window.addEventListener('storage', e => {
+  if (e.key === STORAGE_KEY) { load(); lastLayoutKey = null; render(); }
+});
+
+// Service Worker登録（iPhoneのホーム画面アプリで通知を出すために必要）
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .then(reg => { swReg = reg; })
+    .catch(() => {});
+}
+
+// Safariは長期間使わないサイトのデータを消すことがあるので、永続化をお願いしておく
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(() => {});
+}
 </script>
 </body>
 </html>
